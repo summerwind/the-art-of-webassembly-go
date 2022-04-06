@@ -1,45 +1,36 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
+	"github.com/tetratelabs/wazero"
+	"log"
 	"os"
 	"strconv"
-
-	"github.com/tetratelabs/wazero/wasm"
-	"github.com/tetratelabs/wazero/wasm/wazeroir"
 )
+
+// isPrimeWasm was compiled from testdata/is_prime.wat
+//go:embed testdata/is_prime.wasm
+var isPrimeWasm []byte
 
 func main() {
 	value, err := strconv.ParseUint(os.Args[1], 10, 64)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "invalid args %v: %v", os.Args[1], err)
-		os.Exit(1)
+		log.Fatalf("invalid args %v: %v", os.Args[1], err)
 	}
 
-	buf, err := os.ReadFile("is_prime.wasm")
+	r := wazero.NewRuntime()
+
+	module, err := r.InstantiateModuleFromCode(isPrimeWasm)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to read wasm file: %v", err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
+	defer module.Close()
 
-	mod, err := wasm.DecodeModule(buf)
+	isPrime := module.ExportedFunction("is_prime")
+	results, err := isPrime.Call(nil, value)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to decode module: %v", err)
-		os.Exit(1)
-	}
-
-	store := wasm.NewStore(wazeroir.NewEngine())
-
-	err = store.Instantiate(mod, "")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to instantiate: %v", err)
-		os.Exit(1)
-	}
-
-	results, _, err := store.CallFunction("", "is_prime", value)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to call function: %v", err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
 
 	if results[0] == 1 {

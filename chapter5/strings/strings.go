@@ -1,82 +1,72 @@
 package main
 
 import (
+	"bytes"
+	_ "embed"
 	"fmt"
-	"os"
-	"reflect"
-	"strings"
-
-	"github.com/tetratelabs/wazero/wasm"
-	"github.com/tetratelabs/wazero/wasm/wazeroir"
+	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
+	"log"
 )
 
-var maxMem uint32 = 65535
+// stringsWasm was compiled from testdata/strings.wat
+//go:embed testdata/strings.wasm
+var stringsWasm []byte
 
-func nullStr(ctx *wasm.HostFunctionCallContext, strPos int32) {
-	buf := ctx.Memory.Buffer[strPos : int32(maxMem)-strPos]
-	str := strings.Split(string(buf), string(rune(0)))
-	fmt.Println(str[0])
+func nullStr(m api.Module, strPos uint32) {
+	strLen := m.Memory().Size() - strPos
+	buf, ok := m.Memory().Read(strPos, strLen)
+	if !ok {
+		log.Fatalf("Memory.Read(%d, %d) out of range", strPos, strLen)
+	}
+	str := bytes.Split(buf, []byte{0})
+	fmt.Println(string(str[0]))
 }
 
-func strPosLen(ctx *wasm.HostFunctionCallContext, strPos, strLen int32) {
-	buf := ctx.Memory.Buffer[strPos : strPos+strLen]
+func strPosLen(m api.Module, strPos, strLen uint32) {
+	buf, ok := m.Memory().Read(strPos, strLen)
+	if !ok {
+		log.Fatalf("Memory.Read(%d, %d) out of range", strPos, strLen)
+	}
 	fmt.Println(string(buf))
 }
 
-func lenPrefix(ctx *wasm.HostFunctionCallContext, strPos int32) {
-	len := int(ctx.Memory.Buffer[0:1][0])
-	buf := ctx.Memory.Buffer[strPos+1 : len]
+func lenPrefix(m api.Module, strPos uint32) {
+	strLen, ok := m.Memory().ReadByte(strPos)
+	if !ok {
+		log.Fatalf("Memory.ReadByte(%d) out of range", strPos)
+	}
+	strPos++
+	buf, ok := m.Memory().Read(strPos, uint32(strLen))
+	if !ok {
+		log.Fatalf("Memory.Read(%d, %d) out of range", strPos, strLen)
+	}
 	fmt.Println(string(buf))
 }
 
 func main() {
-	buf, err := os.ReadFile("strings.wasm")
+	r := wazero.NewRuntime()
+
+	env, err := r.NewModuleBuilder("env").
+		ExportFunction("null_str", nullStr).
+		ExportFunction("str_pos_len", strPosLen).
+		ExportFunction("len_prefix", lenPrefix).
+		ExportMemoryWithMax("buffer", 1, 1).
+		Instantiate()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to read wasm file: %v", err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
+	defer env.Close()
 
-	mod, err := wasm.DecodeModule(buf)
+	module, err := r.InstantiateModuleFromCode(stringsWasm)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to decode module: %v", err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
+	defer module.Close()
 
-	store := wasm.NewStore(wazeroir.NewEngine())
-
-	err = store.AddHostFunction("env", "null_str", reflect.ValueOf(nullStr))
+	test := module.ExportedFunction("main")
+	_, err = test.Call(nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to add host function: %v", err)
-		os.Exit(1)
-	}
-
-	err = store.AddHostFunction("env", "str_pos_len", reflect.ValueOf(strPosLen))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to add host function: %v", err)
-		os.Exit(1)
-	}
-
-	err = store.AddHostFunction("env", "len_prefix", reflect.ValueOf(lenPrefix))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to add host function: %v", err)
-		os.Exit(1)
-	}
-
-	err = store.AddMemoryInstance("env", "buffer", 1, &maxMem)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to add memory instance: %v", err)
-		os.Exit(1)
-	}
-
-	err = store.Instantiate(mod, "")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to instantiate: %v", err)
-		os.Exit(1)
-	}
-
-	_, _, err = store.CallFunction("", "main")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to call function: %v", err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
 }

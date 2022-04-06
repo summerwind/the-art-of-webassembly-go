@@ -1,69 +1,49 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
-	"os"
-	"reflect"
+	"github.com/tetratelabs/wazero"
+	"log"
 	"time"
-
-	"github.com/tetratelabs/wazero/wasm"
-	"github.com/tetratelabs/wazero/wasm/wazeroir"
 )
+
+// funcPerformWasm was compiled from testdata/func_perform.wat
+//go:embed testdata/func_perform.wasm
+var funcPerformWasm []byte
 
 var i uint32 = 0
 
-func externalCall(ctx *wasm.HostFunctionCallContext) uint32 {
+func externalCall() uint32 {
 	i += 1
 	return i
 }
 
 func main() {
-	var (
-		start time.Time
-		d     time.Duration
-	)
+	r := wazero.NewRuntime()
 
-	buf, err := os.ReadFile("func_perform.wasm")
+	goM, err := r.NewModuleBuilder("go").
+		ExportFunction("external_call", externalCall).
+		Instantiate()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to read wasm file: %v", err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
+	defer goM.Close()
 
-	mod, err := wasm.DecodeModule(buf)
+	module, err := r.InstantiateModuleFromCode(funcPerformWasm)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to decode module: %v", err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
+	defer module.Close()
 
-	store := wasm.NewStore(wazeroir.NewEngine())
+	for _, fn := range []string{"wasm_call", "go_call"} {
+		start := time.Now()
+		_, err = module.ExportedFunction(fn).Call(nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+		d := time.Since(start)
 
-	err = store.AddHostFunction("go", "external_call", reflect.ValueOf(externalCall))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to add host function: %v", err)
-		os.Exit(1)
+		fmt.Printf("%s time=%d\n", fn, d.Milliseconds())
 	}
-
-	err = store.Instantiate(mod, "")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to instantiate: %v", err)
-		os.Exit(1)
-	}
-
-	start = time.Now()
-	_, _, err = store.CallFunction("", "wasm_call")
-	d = time.Now().Sub(start)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to call function: %v", err)
-		os.Exit(1)
-	}
-	fmt.Printf("wasm_call time=%d\n", d.Milliseconds())
-
-	start = time.Now()
-	_, _, err = store.CallFunction("", "go_call")
-	d = time.Now().Sub(start)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to call function: %v", err)
-		os.Exit(1)
-	}
-	fmt.Printf("go_call time=%d\n", d.Milliseconds())
 }

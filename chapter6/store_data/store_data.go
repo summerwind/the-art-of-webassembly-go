@@ -1,64 +1,47 @@
 package main
 
 import (
-	"encoding/binary"
+	_ "embed"
 	"fmt"
-	"os"
+	"github.com/tetratelabs/wazero"
+	"log"
+)
 
-	"github.com/tetratelabs/wazero/wasm"
-	"github.com/tetratelabs/wazero/wasm/wazeroir"
+// storeDataWasm was compiled from testdata/store_data.wat
+//go:embed testdata/store_data.wasm
+var storeDataWasm []byte
+
+const (
+	dataAddr     = 32
+	dataCount    = 16
+	dataI32Index = dataAddr / 4
 )
 
 func main() {
-	var (
-		data_addr      = 32
-		data_count     = 16
-		data_i32_index = data_addr / 4
-	)
+	r := wazero.NewRuntime()
 
-	buf, err := os.ReadFile("store_data.wasm")
+	env, err := r.NewModuleBuilder("env").
+		ExportMemoryWithMax("mem", 1, 1).
+		ExportGlobalI32("data_addr", dataAddr).
+		ExportGlobalI32("data_count", dataCount).
+		Instantiate()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to read wasm file: %v", err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
+	defer env.Close()
 
-	mod, err := wasm.DecodeModule(buf)
+	module, err := r.InstantiateModuleFromCode(storeDataWasm)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to decode module: %v", err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
+	defer module.Close()
 
-	store := wasm.NewStore(wazeroir.NewEngine())
-
-	maxMem := uint32(1)
-	err = store.AddMemoryInstance("env", "mem", 1, &maxMem)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to add memory instance: %v", err)
-		os.Exit(1)
-	}
-
-	err = store.AddGlobal("env", "data_addr", uint64(data_addr), wasm.ValueTypeI32, false)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to add global: %v", err)
-		os.Exit(1)
-	}
-
-	err = store.AddGlobal("env", "data_count", uint64(data_count), wasm.ValueTypeI32, false)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to add global: %v", err)
-		os.Exit(1)
-	}
-
-	err = store.Instantiate(mod, "")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to instantiate: %v", err)
-		os.Exit(1)
-	}
-
-	mem := store.ModuleInstances["env"].Exports["mem"].Memory
-	for i := 0; i < data_i32_index+data_count+4; i++ {
-		data := binary.LittleEndian.Uint32(mem.Buffer[i*4:])
-		if data != 0 {
+	mem := env.ExportedMemory("mem")
+	for i := uint32(0); i < dataI32Index+dataCount+4; i++ {
+		data, ok := mem.ReadUint32Le(i * 4)
+		if !ok {
+			log.Fatalf("Memory.ReadUint32Le(%d) out of range", i*4)
+		} else if data != 0 {
 			fmt.Printf("data[%d]=%v\n", i, data)
 		} else {
 			fmt.Printf("data[%d]=%v\n", i, data)

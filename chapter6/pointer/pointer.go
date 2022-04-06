@@ -1,45 +1,37 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
-	"os"
-
-	"github.com/tetratelabs/wazero/wasm"
-	"github.com/tetratelabs/wazero/wasm/wazeroir"
+	"github.com/tetratelabs/wazero"
+	"log"
 )
 
+// pointerWasm was compiled from testdata/pointer.wat
+//go:embed testdata/pointer.wasm
+var pointerWasm []byte
+
 func main() {
-	buf, err := os.ReadFile("pointer.wasm")
+	r := wazero.NewRuntime()
+
+	env, err := r.NewModuleBuilder("env").
+		ExportMemoryWithMax("buffer", 1, 1).
+		Instantiate()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to read wasm file: %v", err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
+	defer env.Close()
 
-	mod, err := wasm.DecodeModule(buf)
+	module, err := r.InstantiateModuleFromCode(pointerWasm)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to decode module: %v", err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
+	defer module.Close()
 
-	store := wasm.NewStore(wazeroir.NewEngine())
-
-	maxMem := uint32(1)
-	err = store.AddMemoryInstance("env", "mem", 1, &maxMem)
+	getPtr := module.ExportedFunction("get_ptr")
+	results, err := getPtr.Call(nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to add memory instance: %v", err)
-		os.Exit(1)
-	}
-
-	err = store.Instantiate(mod, "")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to instantiate: %v", err)
-		os.Exit(1)
-	}
-
-	results, _, err := store.CallFunction("", "get_ptr")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to call function: %v", err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
 
 	fmt.Printf("pointer_value=%d\n", results[0])

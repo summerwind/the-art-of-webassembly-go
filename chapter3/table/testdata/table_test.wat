@@ -1,5 +1,5 @@
 (module
-  (import "go" "tbl" (table $tbl 4 anyfunc))
+  (import "go" "tbl" (table $tbl 4 funcref))
   (import "go" "increment" (func $increment (result i32)))
   (import "go" "decrement" (func $decrement (result i32)))
   (import "go" "wasm_increment" (func $wasm_increment (result i32)))

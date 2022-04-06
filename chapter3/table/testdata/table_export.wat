@@ -1,7 +1,7 @@
 (module
   (import "go" "increment" (func $go_increment (result i32)))
   (import "go" "decrement" (func $go_decrement (result i32)))
-  (table $tbl (export "tbl") 4 anyfunc)
+  (table $tbl (export "tbl") 4 funcref)
 
   (global $i (mut i32) (i32.const 0))
 
