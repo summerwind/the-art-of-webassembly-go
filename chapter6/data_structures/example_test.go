@@ -5,11 +5,11 @@ import (
 	"os"
 )
 
-// ExampleMain ensures the following will work:
+// Example_main ensures the following will work:
 //
 //	go build data_structures.go
 //	./data_structures
-func ExampleMain() {
+func Example_main() {
 	color.NoColor = true
 	color.Output = os.Stdout
 

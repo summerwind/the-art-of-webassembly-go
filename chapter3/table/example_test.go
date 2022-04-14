@@ -4,11 +4,11 @@ import (
 	"the-art-of-webassembly-go/internal"
 )
 
-// ExampleMain ensures the following will work:
+// Example_main ensures the following will work:
 //
 //	go build table.go
 //	./table
-func ExampleMain() {
+func Example_main() {
 
 	internal.ScrubNumbers(main)
 

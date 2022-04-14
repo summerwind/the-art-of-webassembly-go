@@ -1,10 +1,10 @@
 package main
 
-// ExampleMain ensures the following will work:
+// Example_main ensures the following will work:
 //
 //	go build globals.go
 //	./globals
-func ExampleMain() {
+func Example_main() {
 	main()
 
 	// Output:
